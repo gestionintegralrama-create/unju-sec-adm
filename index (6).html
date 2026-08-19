@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Secretaría de Administración UNJU — Seguimiento de actividades</title>
+<style>
+  :root{
+    --paper:#EAE6DA; --paper-dark:#DFDACB; --card:#F5F2E9;
+    --ink:#20303D; --ink-soft:#5B6B75; --line:#C9C2AC;
+    --seal:#7A2E2E; --gold:#A9762F;
+    --alta:#A6382C; --alta-bg:#F1DAD3;
+    --media:#B4832A; --media-bg:#F1E4C7;
+    --baja:#3E6E4E; --baja-bg:#DCE7DB;
+    --navy:#22303F;
+    --f-display: Georgia, 'Times New Roman', serif;
+    --f-body: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --f-mono: 'Courier New', Consolas, Menlo, monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{ font-family:var(--f-body); color:var(--ink); background:var(--paper); }
+  button, input, select, textarea{ font-family:inherit; }
+  button{ cursor:pointer; border:none; background:none; }
+  .font-display{ font-family:var(--f-display); }
+  .font-mono{ font-family:var(--f-mono); }
+  .card{ background:var(--card); border:1px solid var(--line); box-shadow:2px 2px 0 rgba(32,48,61,0.06); }
+  .stamp{ display:inline-flex; align-items:center; gap:4px; font-family:var(--f-mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; padding:3px 8px; border-radius:2px; border:1.5px solid currentColor; transform:rotate(-1.5deg); font-weight:700; white-space:nowrap; }
+  .divider{ border-top:1px dashed var(--line); }
+  .input{ background:var(--paper); border:1px solid var(--line); color:var(--ink); padding:8px 10px; font-size:13px; width:100%; }
+  .input:focus{ outline:2px solid var(--navy); outline-offset:1px; }
+  .btn-primary{ background:var(--navy); color:var(--paper); font-family:var(--f-mono); font-size:12px; letter-spacing:.04em; padding:10px 0; width:100%; text-align:center; }
+  .flex{ display:flex; } .items-center{ align-items:center; } .justify-between{ justify-content:space-between; }
+  .gap-2{ gap:8px; } .gap-3{ gap:12px; } .flex-col{ flex-direction:column; } .flex-wrap{ flex-wrap:wrap; } .flex-1{ flex:1; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .px4{padding-left:16px;padding-right:16px;} .py4{padding-top:16px;padding-bottom:16px;}
+  .progress-track{ background:var(--paper-dark); height:6px; border-radius:3px; overflow:hidden; border:1px solid var(--line); }
+  .progress-fill{ height:100%; background:var(--navy); }
+  .scrollbar::-webkit-scrollbar{ width:6px; } .scrollbar::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+  #app{ min-height:100vh; }
+  .shell{ max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+  .header{ border-left:5px solid var(--seal); }
+  .bottomnav{ position:sticky; bottom:0; border-top:1px solid var(--line); }
+  .navbtn{ flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:9px 2px; color:var(--ink-soft); border-top:2px solid transparent; }
+  .navbtn.active{ color:var(--navy); border-top:2px solid var(--navy); font-weight:700; }
+  .navlabel{ font-family:var(--f-mono); font-size:9.5px; letter-spacing:.02em; text-align:center; }
+  .modal-bg{ position:fixed; inset:0; background:rgba(32,48,61,0.45); z-index:50; display:flex; align-items:flex-end; justify-content:center; }
+  .modal-panel{ width:100%; max-width:480px; max-height:88vh; overflow-y:auto; background:var(--card); border:1px solid var(--line); border-radius:10px 10px 0 0; }
+  .taskrow{ background:var(--card); border:1px solid var(--line); text-align:left; padding:13px 14px; display:flex; align-items:center; gap:12px; width:100%; }
+  .kpi{ background:var(--card); border:1px solid var(--line); padding:14px; }
+  .barwrap{ display:flex; align-items:flex-end; gap:10px; height:120px; }
+  .bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%; }
+  .bar{ width:70%; background:var(--navy); border-radius:2px 2px 0 0; }
+  .donut{ width:130px; height:130px; border-radius:50%; margin:0 auto; }
+  select.input{ appearance:none; }
+  a.download-link{ text-decoration:none; }
+</style>
+</head>
+<body>
+<div id="app"><div style="padding:40px;text-align:center;color:#5B6B75;">Cargando…</div></div>
+
+<script>
+/* =====================================================================
+   Secretaría de Administración UNJU — Seguimiento de actividades
+   Versión 100% autocontenida: sin conexión a internet, sin librerías externas.
+   ===================================================================== */
+
+/* ---------- Datos semilla ---------- */
+const AREA_SEED = [
+  { id: "contabilidad", nombre: "Contabilidad" },
+  { id: "secretarias", nombre: "Secretarías" },
+  { id: "soporte", nombre: "Soporte de Procesos e Informática" },
+  { id: "presupuesto", nombre: "Presupuesto" },
+  { id: "compras", nombre: "Compras" },
+];
+
+const USER_SEED = [
+  { id: "u-director", nombre: "Marcela Ríos", usuario: "mrios", clave: "1234", rol: "director", areaId: null },
+  { id: "u-admin", nombre: "Julián Torres", usuario: "jtorres", clave: "1234", rol: "admin", areaId: null },
+  { id: "u-contable", nombre: "Estela Farfán", usuario: "efarfan", clave: "1234", rol: "area", areaId: "contabilidad" },
+  { id: "u-secret", nombre: "Pablo Guzmán", usuario: "pguzman", clave: "1234", rol: "area", areaId: "secretarias" },
+  { id: "u-soporte", nombre: "Lucas Vera", usuario: "lvera", clave: "1234", rol: "area", areaId: "soporte" },
+  { id: "u-presupuesto", nombre: "Noelia Choque", usuario: "nchoque", clave: "1234", rol: "area", areaId: "presupuesto" },
+  { id: "u-compras", nombre: "Diego Salazar", usuario: "dsalazar", clave: "1234", rol: "area", areaId: "compras" },
+];
+
+const _today = new Date();
+const addDays = (n) => { const d = new Date(_today); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+const TASK_SEED = [
+  { id: "t-1", areaId: "contabilidad", titulo: "Balance trimestral de ejecución presupuestaria", descripcion: "Consolidar balance del 3er trimestre con partidas de nación.", responsable: "Estela Farfán", criticidad: "alta", estado: "en_progreso", fechaLimite: addDays(3), avance: 65, comentarios: [{ autor: "Estela Farfán", rol: "area", fecha: addDays(-4), texto: "Falta conciliar dos partidas con Tesorería.", tipo: "comentario" }], historial: [] },
+  { id: "t-2", areaId: "contabilidad", titulo: "Análisis de costos — división de ingresos de nación", descripcion: "Detallar cómo se distribuyen los ingresos girados por nación entre las distintas áreas de la universidad.", responsable: "Estela Farfán", criticidad: "media", estado: "pendiente", fechaLimite: addDays(10), avance: 15, comentarios: [], historial: [{ fechaAnterior: addDays(-2), fechaNueva: addDays(10), motivo: "Se solicitó información adicional a Presupuesto." }] },
+  { id: "t-3", areaId: "secretarias", titulo: "Actualización de mesa de entradas digital", descripcion: "Migrar registro de expedientes a la nueva planilla unificada.", responsable: "Pablo Guzmán", criticidad: "baja", estado: "en_progreso", fechaLimite: addDays(20), avance: 40, comentarios: [], historial: [] },
+  { id: "t-4", areaId: "soporte", titulo: "Migración de servidores de expedientes", descripcion: "Pasar el repositorio de expedientes al nuevo servidor con respaldo diario.", responsable: "Lucas Vera", criticidad: "alta", estado: "pendiente", fechaLimite: addDays(-1), avance: 20, comentarios: [{ autor: "Marcela Ríos", rol: "director", fecha: addDays(-1), texto: "Tarea vencida sin reporte de avance — necesito una actualización urgente.", tipo: "alerta" }], historial: [] },
+  { id: "t-5", areaId: "presupuesto", titulo: "Proyección de presupuesto 2027", descripcion: "Elaborar proyección preliminar por área para el ejercicio 2027.", responsable: "Noelia Choque", criticidad: "media", estado: "en_progreso", fechaLimite: addDays(15), avance: 55, comentarios: [], historial: [] },
+  { id: "t-6", areaId: "compras", titulo: "Licitación de insumos de laboratorio", descripcion: "Pliego de licitación pública para reposición de insumos.", responsable: "Diego Salazar", criticidad: "alta", estado: "finalizada", fechaLimite: addDays(-5), avance: 100, comentarios: [], historial: [] },
+  { id: "t-7", areaId: "contabilidad", titulo: "Rendición de fondos de Bienestar Universitario", descripcion: "Rendir ante Contaduría los fondos ejecutados del programa de becas.", responsable: "Estela Farfán", criticidad: "media", estado: "en_progreso", fechaLimite: addDays(7), avance: 80, comentarios: [], historial: [] },
+];
+
+const CRIT = {
+  alta: { label: "Alta", color: "var(--alta)", bg: "var(--alta-bg)", hex: "#A6382C" },
+  media: { label: "Media", color: "var(--media)", bg: "var(--media-bg)", hex: "#B4832A" },
+  baja: { label: "Baja", color: "var(--baja)", bg: "var(--baja-bg)", hex: "#3E6E4E" },
+};
+const ESTADO = { pendiente: "Pendiente", en_progreso: "En curso", finalizada: "Finalizada" };
+
+const uid = (p) => `${p}-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+const daysLeft = (iso) => Math.ceil((new Date(iso + "T00:00:00") - new Date(new Date().toDateString())) / 86400000);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---------- Persistencia (localStorage) ---------- */
+const STORAGE_KEY = "unju-seguimiento-estado-v1";
+function loadState() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+function persist() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: S.users, areas: S.areas, tasks: S.tasks })); } catch (e) {}
+}
+
+/* ---------- Estado global ---------- */
+const _saved = loadState();
+const S = {
+  users: _saved?.users || USER_SEED,
+  areas: _saved?.areas || AREA_SEED,
+  tasks: _saved?.tasks || TASK_SEED,
+  user: null,
+  tab: "resumen",
+  openTaskId: null,
+  showTaskForm: false,
+  editTaskId: null,
+  showProrroga: false,
+  tipoComentario: "comentario",
+  loginError: "",
+};
+
+function render() { S.user ? renderApp() : renderLogin(); }
+
+/* ---------- Helpers de UI ---------- */
+function stampBadge(crit, small) {
+  const c = CRIT[crit];
+  return `<span class="stamp" style="color:${c.color};border-color:${c.color};background:${c.bg};font-size:${small ? 9 : 10}px;">● ${c.label}</span>`;
+}
+function estadoPill(estado) {
+  const map = { pendiente: ["var(--ink-soft)", "var(--paper-dark)"], en_progreso: ["var(--navy)", "#DCE3E8"], finalizada: ["var(--baja)", "var(--baja-bg)"] };
+  const [color, bg] = map[estado];
+  return `<span class="font-mono" style="color:${color};background:${bg};font-size:10px;padding:3px 7px;border-radius:2px;letter-spacing:.04em;">${ESTADO[estado].toUpperCase()}</span>`;
+}
+function progressBar(value) {
+  return `<div class="progress-track"><div class="progress-fill" style="width:${value}%;"></div></div>`;
+}
+function taskRow(t, area) {
+  const dl = daysLeft(t.fechaLimite);
+  const overdue = dl < 0 && t.estado !== "finalizada";
+  return `
+  <button class="taskrow" data-action="open-task" data-id="${t.id}" style="border-left:4px solid ${CRIT[t.criticidad].hex};">
+    <div style="flex:1;min-width:0;">
+      <div class="flex items-center gap-2 flex-wrap" style="margin-bottom:4px;">
+        <span class="font-mono" style="font-size:10px;color:var(--ink-soft);">${esc(area?.nombre || "")}</span>
+        ${estadoPill(t.estado)}
+      </div>
+      <div style="font-size:13.5px;font-weight:600;line-height:1.25;">${esc(t.titulo)}</div>
+      <div class="flex items-center gap-2" style="margin-top:6px;">
+        <div style="flex:1;max-width:120px;">${progressBar(t.avance)}</div>
+        <span class="font-mono" style="font-size:10px;color:var(--ink-soft);">${t.avance}%</span>
+      </div>
+      <div class="flex items-center gap-2" style="margin-top:6px;">
+        ${stampBadge(t.criticidad, true)}
+        <span class="font-mono" style="font-size:10px;color:${overdue ? "var(--alta)" : "var(--ink-soft)"};">${overdue ? `Vencida hace ${Math.abs(dl)}d` : `Vence en ${dl}d — ${fmtDate(t.fechaLimite)}`}</span>
+      </div>
+    </div>
+    <span style="color:var(--ink-soft);">›</span>
+  </button>`;
+}
+
+/* ---------- Resumen / gráficos (sin librerías: CSS puro) ---------- */
+function resumenHTML(tasks, areas) {
+  const vencidas = tasks.filter((t) => daysLeft(t.fechaLimite) < 0 && t.estado !== "finalizada").length;
+  const finalizadas = tasks.filter((t) => t.estado === "finalizada").length;
+  const enCurso = tasks.filter((t) => t.estado === "en_progreso").length;
+  const kpis = [
+    ["Total tareas", tasks.length], ["En curso", enCurso], ["Vencidas", vencidas], ["Finalizadas", finalizadas],
+  ];
+
+  const total = tasks.length || 1;
+  let acc = 0;
+  const stops = Object.keys(CRIT).map((c) => {
+    const count = tasks.filter((t) => t.criticidad === c).length;
+    const pct = (count / total) * 100;
+    const from = acc; acc += pct;
+    return `${CRIT[c].hex} ${from}% ${acc}%`;
+  }).join(", ");
+
+  const legend = Object.keys(CRIT).map((c) => {
+    const count = tasks.filter((t) => t.criticidad === c).length;
+    return `<div class="flex items-center gap-2" style="font-size:12px;margin-bottom:4px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${CRIT[c].hex};display:inline-block;"></span>
+      ${CRIT[c].label} <span class="font-mono" style="color:var(--ink-soft);">(${count})</span>
+    </div>`;
+  }).join("");
+
+  const maxArea = Math.max(1, ...areas.map((a) => tasks.filter((t) => t.areaId === a.id).length));
+  const bars = areas.map((a) => {
+    const count = tasks.filter((t) => t.areaId === a.id).length;
+    const h = Math.max(4, Math.round((count / maxArea) * 100));
+    return `<div class="bar-col">
+      <span class="font-mono" style="font-size:10px;color:var(--ink-soft);">${count}</span>
+      <div class="bar" style="height:${h}%;"></div>
+      <span class="font-mono" style="font-size:9px;color:var(--ink-soft);text-align:center;line-height:1.2;">${esc(a.nombre.split(" ")[0])}</span>
+    </div>`;
+  }).join("");
+
+  return `
+  <div class="flex flex-col gap-3 px4 py4">
+    <div class="grid2">
+      ${kpis.map(([label, value]) => `
+        <div class="kpi">
+          <div class="font-display" style="font-size:24px;font-weight:700;">${value}</div>
+          <div class="font-mono" style="font-size:10px;color:var(--ink-soft);margin-top:2px;">${label.toUpperCase()}</div>
+        </div>`).join("")}
+    </div>
+    <div class="card px4 py4">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:10px;">TAREAS POR CRITICIDAD</div>
+      <div class="flex items-center gap-3">
+        <div class="donut" style="background:conic-gradient(${stops});"></div>
+        <div>${legend}</div>
+      </div>
+    </div>
+    <div class="card px4 py4">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:10px;">TAREAS POR ÁREA</div>
+      <div class="barwrap">${bars}</div>
+    </div>
+  </div>`;
+}
+
+function timelineHTML(tasks, areas) {
+  const sorted = tasks.filter((t) => t.estado !== "finalizada").slice().sort((a, b) => a.fechaLimite.localeCompare(b.fechaLimite));
+  const items = sorted.map((t) => {
+    const area = areas.find((a) => a.id === t.areaId);
+    const overdue = daysLeft(t.fechaLimite) < 0;
+    return `
+    <div style="position:relative;margin-bottom:12px;">
+      <div style="position:absolute;left:-18px;top:6px;width:10px;height:10px;border-radius:50%;background:${CRIT[t.criticidad].hex};border:2px solid var(--paper);"></div>
+      <button class="card" data-action="open-task" data-id="${t.id}" style="width:100%;text-align:left;padding:10px 12px;">
+        <div class="flex items-center justify-between">
+          <span class="font-mono" style="font-size:10.5px;color:${overdue ? "var(--alta)" : "var(--ink-soft)"};">${fmtDate(t.fechaLimite)}</span>
+          ${stampBadge(t.criticidad, true)}
+        </div>
+        <div style="font-size:13px;font-weight:600;margin-top:3px;">${esc(t.titulo)}</div>
+        <div class="font-mono" style="font-size:10px;color:var(--ink-soft);margin-top:3px;">${esc(area?.nombre || "")} · ${esc(t.responsable)}</div>
+      </button>
+    </div>`;
+  }).join("");
+  return `
+  <div class="px4 py4">
+    <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:14px;">LÍNEA DE TIEMPO — TAREAS ABIERTAS</div>
+    <div style="position:relative;padding-left:18px;">
+      <div style="position:absolute;left:5px;top:4px;bottom:4px;width:2px;background:var(--line);"></div>
+      ${items || `<div style="font-size:13px;color:var(--ink-soft);">No hay tareas abiertas.</div>`}
+    </div>
+  </div>`;
+}
+
+/* ---------- Exportar (CSV y Word, sin librerías) ---------- */
+function exportCSV() {
+  const rows = [["Área","Tarea","Responsable","Criticidad","Estado","Fecha límite","Avance (%)","Reprogramaciones"]];
+  S.tasks.forEach((t) => {
+    const area = S.areas.find((a) => a.id === t.areaId)?.nombre || "";
+    rows.push([area, t.titulo, t.responsable, CRIT[t.criticidad].label, ESTADO[t.estado], fmtDate(t.fechaLimite), t.avance, t.historial.length]);
+  });
+  const csv = "\ufeff" + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  downloadBlob(blob, "tareas_secretaria_administracion.csv");
+}
+function exportWord() {
+  const rowsHtml = S.tasks.map((t) => {
+    const area = S.areas.find((a) => a.id === t.areaId)?.nombre || "";
+    return `<tr><td>${esc(area)}</td><td>${esc(t.titulo)}</td><td>${esc(t.responsable)}</td><td>${CRIT[t.criticidad].label}</td><td>${ESTADO[t.estado]}</td><td>${fmtDate(t.fechaLimite)}</td><td>${t.avance}%</td></tr>`;
+  }).join("");
+  const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset="utf-8"><title>Reporte</title></head><body style="font-family:Calibri,sans-serif;"><h2>Secretaría de Administración — UNJU</h2><p>Reporte de actividades por área — ${new Date().toLocaleDateString("es-AR")}</p><table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;font-size:11px;"><tr style="background:#22303F;color:#fff;"><th>Área</th><th>Tarea</th><th>Responsable</th><th>Criticidad</th><th>Estado</th><th>Fecha límite</th><th>Avance</th></tr>${rowsHtml}</table></body></html>`;
+  const blob = new Blob(["\ufeff", html], { type: "application/msword" });
+  downloadBlob(blob, "reporte_secretaria_administracion.doc");
+}
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- Login ---------- */
+function renderLogin() {
+  const usersList = S.users.map((u) => `
+    <button class="flex items-center justify-between" data-action="quick-login" data-usuario="${esc(u.usuario)}"
+      style="background:var(--paper);border:1px solid var(--line);font-size:12px;padding:7px 10px;width:100%;">
+      <span>${esc(u.nombre)}</span><span class="font-mono" style="font-size:10px;color:var(--ink-soft);">${esc(u.usuario)}</span>
+    </button>`).join("");
+
+  document.getElementById("app").innerHTML = `
+  <div class="flex items-center justify-center" style="min-height:100vh;padding:20px;">
+    <div class="card" style="width:100%;max-width:380px;border-top:5px solid var(--seal);padding:28px;">
+      <div class="flex items-center gap-2" style="color:var(--seal);margin-bottom:4px;">
+        <span class="font-mono" style="font-size:11px;letter-spacing:.08em;">◆ UNJU · REGISTRO DE GESTIÓN</span>
+      </div>
+      <h1 class="font-display" style="font-size:26px;font-weight:700;margin:4px 0 2px;">Secretaría de<br/>Administración</h1>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:20px;">Seguimiento de actividades por área</p>
+      <form id="login-form" class="flex flex-col gap-3">
+        <div>
+          <label class="font-mono" style="font-size:10px;color:var(--ink-soft);letter-spacing:.05em;">USUARIO</label>
+          <input class="input" style="margin-top:4px;" id="login-usuario" placeholder="p. ej. efarfan" autocomplete="off" />
+        </div>
+        <div>
+          <label class="font-mono" style="font-size:10px;color:var(--ink-soft);letter-spacing:.05em;">CONTRASEÑA</label>
+          <input class="input" style="margin-top:4px;" id="login-clave" type="password" placeholder="••••" autocomplete="off" />
+        </div>
+        ${S.loginError ? `<div style="color:var(--alta);font-size:12.5px;">${esc(S.loginError)}</div>` : ""}
+        <button type="submit" class="btn-primary" style="margin-top:4px;">INGRESAR</button>
+      </form>
+      <div class="divider" style="margin-top:20px;padding-top:16px;">
+        <div class="font-mono" style="font-size:10px;color:var(--ink-soft);letter-spacing:.05em;margin-bottom:8px;">ACCESOS DE PRUEBA (clave: 1234)</div>
+        <div class="flex flex-col gap-2">${usersList}</div>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById("login-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const usuario = document.getElementById("login-usuario").value.trim();
+    const clave = document.getElementById("login-clave").value;
+    const u = S.users.find((x) => x.usuario === usuario);
+    if (!u || u.clave !== clave) { S.loginError = "Usuario o contraseña incorrectos."; render(); return; }
+    S.loginError = ""; S.user = u; S.tab = u.rol === "area" ? "mis-tareas" : "resumen";
+    render();
+  });
+}
+
+/* ---------- Header / Nav ---------- */
+function headerHTML() {
+  const roleLabel = { admin: "Administrador/a", director: "Dirección", area: "Responsable de área" }[S.user.rol];
+  const areaName = S.user.areaId ? S.areas.find((a) => a.id === S.user.areaId)?.nombre : null;
+  return `
+  <div class="card header">
+    <div class="flex items-center justify-between px4 py4" style="padding-top:12px;padding-bottom:12px;">
+      <div>
+        <div class="font-display" style="font-size:17px;font-weight:700;">Secretaría de Administración</div>
+        <div class="font-mono" style="font-size:11px;color:var(--ink-soft);">UNJU · ${roleLabel}${areaName ? " · " + esc(areaName) : ""} · ${esc(S.user.nombre)}</div>
+      </div>
+      <button data-action="logout" style="color:var(--ink-soft);font-size:13px;" class="font-mono">SALIR</button>
+    </div>
+  </div>`;
+}
+const TABS_BY_ROLE = {
+  admin: [["resumen", "Resumen"], ["areas", "Áreas"], ["usuarios", "Usuarios"], ["tareas", "Tareas"], ["exportar", "Exportar"]],
+  director: [["resumen", "Resumen"], ["timeline", "Línea de tiempo"], ["tareas", "Tareas"]],
+  area: [["mis-tareas", "Mis tareas"]],
+};
+function bottomNavHTML() {
+  const tabs = TABS_BY_ROLE[S.user.rol];
+  return `<div class="card bottomnav flex">
+    ${tabs.map(([key, label]) => `<button class="navbtn ${S.tab === key ? "active" : ""}" data-action="set-tab" data-tab="${key}"><span class="navlabel">${esc(label)}</span></button>`).join("")}
+  </div>`;
+}
+
+/* ---------- Paneles por rol ---------- */
+function adminContentHTML() {
+  const { tab, tasks, areas, users } = S;
+  if (tab === "resumen") return resumenHTML(tasks, areas);
+
+  if (tab === "tareas") {
+    return `
+    <div class="px4 py4">
+      <div class="flex items-center justify-between" style="margin-bottom:12px;">
+        <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">${tasks.length} TAREAS</div>
+        <button data-action="new-task" class="font-mono" style="background:var(--navy);color:var(--paper);padding:7px 12px;font-size:11px;">+ NUEVA TAREA</button>
+      </div>
+      <div class="flex flex-col gap-2">
+        ${tasks.map((t) => `
+          <div class="flex" style="gap:8px;align-items:stretch;">
+            <div style="flex:1;">${taskRow(t, areas.find((a) => a.id === t.areaId))}</div>
+            <button class="card" data-action="edit-task" data-id="${t.id}" style="padding:0 12px;color:var(--ink-soft);">✎</button>
+          </div>`).join("")}
+      </div>
+    </div>`;
+  }
+
+  if (tab === "areas") {
+    return `
+    <div class="px4 py4">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">ÁREAS (${areas.length})</div>
+      <div class="flex flex-col gap-2" style="margin-bottom:16px;">
+        ${areas.map((a) => `
+          <div class="card flex items-center justify-between px4" style="padding-top:10px;padding-bottom:10px;">
+            <span style="font-size:13.5px;">${esc(a.nombre)}</span>
+            <span class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">${tasks.filter((t) => t.areaId === a.id).length} tareas</span>
+          </div>`).join("")}
+      </div>
+      <div class="card px4 py4">
+        <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:10px;">CREAR NUEVA ÁREA</div>
+        <form id="form-area" class="flex gap-2">
+          <input class="input" id="new-area-nombre" placeholder="Nombre del área" />
+          <button type="submit" class="font-mono" style="background:var(--navy);color:var(--paper);padding:0 16px;font-size:11px;">CREAR</button>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (tab === "usuarios") {
+    const areaOptions = areas.map((a) => `<option value="${a.id}">${esc(a.nombre)}</option>`).join("");
+    return `
+    <div class="px4 py4">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">USUARIOS (${users.length})</div>
+      <div class="flex flex-col gap-2" style="margin-bottom:16px;">
+        ${users.map((u) => `
+          <div class="card px4" style="padding-top:10px;padding-bottom:10px;">
+            <div style="font-size:13.5px;">${esc(u.nombre)}</div>
+            <div class="font-mono" style="font-size:10px;color:var(--ink-soft);">${esc(u.usuario)} · ${{ admin: "Administrador", director: "Dirección", area: "Responsable" }[u.rol]}${u.areaId ? " · " + esc(areas.find((a) => a.id === u.areaId)?.nombre || "") : ""}</div>
+          </div>`).join("")}
+      </div>
+      <div class="card px4 py4">
+        <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:10px;">CREAR USUARIO</div>
+        <form id="form-user" class="flex flex-col gap-2">
+          <input class="input" id="new-user-nombre" placeholder="Nombre completo" />
+          <div class="grid2">
+            <input class="input" id="new-user-usuario" placeholder="Usuario" />
+            <input class="input" id="new-user-clave" placeholder="Contraseña" value="1234" />
+          </div>
+          <div class="grid2">
+            <select class="input" id="new-user-rol">
+              <option value="area">Responsable de área</option>
+              <option value="director">Dirección</option>
+              <option value="admin">Administrador</option>
+            </select>
+            <select class="input" id="new-user-area">${areaOptions}</select>
+          </div>
+          <button type="submit" class="font-mono" style="background:var(--navy);color:var(--paper);padding:9px 0;font-size:11.5px;">CREAR USUARIO</button>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (tab === "exportar") {
+    return `
+    <div class="px4 py4 flex flex-col gap-3">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">DESCARGAR REPORTE (${tasks.length} tareas)</div>
+      <button data-action="export-excel" class="card flex items-center gap-3 px4" style="padding-top:16px;padding-bottom:16px;text-align:left;">
+        <span style="font-size:22px;">▤</span>
+        <div><div style="font-size:14px;font-weight:700;">Exportar a Excel (CSV)</div><div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">.csv — se abre directo en Excel</div></div>
+      </button>
+      <button data-action="export-word" class="card flex items-center gap-3 px4" style="padding-top:16px;padding-bottom:16px;text-align:left;">
+        <span style="font-size:22px;">▥</span>
+        <div><div style="font-size:14px;font-weight:700;">Exportar a Word</div><div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">.doc — reporte con formato de tabla</div></div>
+      </button>
+    </div>`;
+  }
+  return "";
+}
+
+function directorContentHTML() {
+  const { tab, tasks, areas } = S;
+  if (tab === "resumen") return resumenHTML(tasks, areas);
+  if (tab === "timeline") return timelineHTML(tasks, areas);
+  if (tab === "tareas") {
+    return `<div class="px4 py4 flex flex-col gap-2">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:4px;">${tasks.length} TAREAS · TODAS LAS ÁREAS</div>
+      ${tasks.map((t) => taskRow(t, areas.find((a) => a.id === t.areaId))).join("")}
+    </div>`;
+  }
+  return "";
+}
+
+function areaContentHTML() {
+  const mine = S.tasks.filter((t) => t.responsable === S.user.nombre);
+  const area = S.areas.find((a) => a.id === S.user.areaId);
+  const pendientes = mine.filter((t) => t.estado !== "finalizada").length;
+  return `
+  <div class="px4 py4">
+    <div class="card px4 py4" style="border-left:4px solid var(--gold);margin-bottom:16px;">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">ÁREA</div>
+      <div class="font-display" style="font-size:17px;font-weight:700;">${esc(area?.nombre || "")}</div>
+      <div class="font-mono" style="font-size:11px;color:var(--ink-soft);margin-top:4px;">${pendientes} tareas abiertas de ${mine.length}</div>
+    </div>
+    <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">MIS TAREAS</div>
+    <div class="flex flex-col gap-2">
+      ${mine.length === 0 ? `<div style="font-size:13px;color:var(--ink-soft);">No tenés tareas asignadas por el momento.</div>` : mine.map((t) => taskRow(t, area)).join("")}
+    </div>
+  </div>`;
+}
+
+/* ---------- Modal: detalle de tarea ---------- */
+function taskDetailModalHTML(task) {
+  const area = S.areas.find((a) => a.id === task.areaId);
+  const user = S.user;
+  const isAdmin = user.rol === "admin", isDirector = user.rol === "director", isArea = user.rol === "area";
+  const overdue = daysLeft(task.fechaLimite) < 0 && task.estado !== "finalizada";
+
+  const critButtons = Object.keys(CRIT).map((c) => `
+    <button data-action="set-criticidad" data-crit="${c}" class="stamp" style="color:${CRIT[c].color};border-color:${CRIT[c].color};background:${task.criticidad === c ? CRIT[c].bg : "transparent"};opacity:${task.criticidad === c ? 1 : 0.5};">● ${CRIT[c].label}</button>`).join("");
+
+  const historial = task.historial.length ? `
+    <div class="divider" style="padding-top:12px;">
+      <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">HISTORIAL DE FECHAS</div>
+      ${task.historial.map((h) => `<div style="font-size:12.5px;margin-bottom:6px;">
+        <span class="font-mono" style="color:var(--ink-soft);">${fmtDate(h.fechaAnterior)} → ${fmtDate(h.fechaNueva)}</span>
+        <div style="color:var(--ink-soft);">${esc(h.motivo)}</div>
+      </div>`).join("")}
+    </div>` : "";
+
+  const comentarios = task.comentarios.length ? task.comentarios.map((c) => `
+    <div style="background:${c.tipo === "alerta" ? "var(--alta-bg)" : "var(--paper)"};border:1px solid var(--line);padding:7px 9px;">
+      <div class="flex items-center justify-between">
+        <span class="font-mono" style="font-size:10.5px;font-weight:700;color:${c.tipo === "alerta" ? "var(--alta)" : "var(--ink)"};">${c.tipo === "alerta" ? "⚠ ALERTA — " : ""}${esc(c.autor)}</span>
+        <span class="font-mono" style="font-size:9.5px;color:var(--ink-soft);">${fmtDate(c.fecha)}</span>
+      </div>
+      <div style="font-size:12.5px;margin-top:2px;">${esc(c.texto)}</div>
+    </div>`).join("") : `<div style="font-size:12.5px;color:var(--ink-soft);">Sin comentarios todavía.</div>`;
+
+  return `
+  <div class="modal-bg" data-action="close-modal">
+    <div class="modal-panel scrollbar" onclick="event.stopPropagation()">
+      <div class="flex items-start justify-between px4" style="padding-top:16px;padding-bottom:10px;border-bottom:1px solid var(--line);">
+        <div style="padding-right:10px;">
+          <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">${esc(area?.nombre || "")} · ${fmtDate(task.fechaLimite)}</div>
+          <div class="font-display" style="font-size:18px;font-weight:700;line-height:1.25;">${esc(task.titulo)}</div>
+        </div>
+        <button data-action="close-modal" style="color:var(--ink-soft);font-size:20px;line-height:1;">×</button>
+      </div>
+      <div class="px4 py4 flex flex-col gap-3">
+        <p style="font-size:13.5px;color:var(--ink-soft);">${esc(task.descripcion)}</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          ${stampBadge(task.criticidad)} ${estadoPill(task.estado)}
+          ${overdue ? `<span class="stamp" style="color:var(--alta);border-color:var(--alta);background:var(--alta-bg);">⚠ Vencida</span>` : ""}
+        </div>
+        <div>
+          <div class="flex justify-between" style="margin-bottom:4px;"><span class="font-mono" style="font-size:10.5px;color:var(--ink-soft);">AVANCE</span><span class="font-mono" style="font-size:10.5px;">${task.avance}%</span></div>
+          ${progressBar(task.avance)}
+        </div>
+        <div class="grid2 font-mono" style="font-size:11.5px;">
+          <div><div style="color:var(--ink-soft);">RESPONSABLE</div><div>${esc(task.responsable)}</div></div>
+          <div><div style="color:var(--ink-soft);">FECHA LÍMITE</div><div>${fmtDate(task.fechaLimite)}</div></div>
+        </div>
+
+        ${(isAdmin || isDirector) ? `
+        <div>
+          <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">CAMBIAR CRITICIDAD</div>
+          <div class="flex gap-2">${critButtons}</div>
+        </div>` : ""}
+
+        ${(isAdmin || isArea) ? `
+        <div class="divider" style="padding-top:12px;">
+          <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">ACTUALIZAR AVANCE</div>
+          <div class="flex items-center gap-3" style="margin-bottom:8px;">
+            <input type="range" min="0" max="100" value="${task.avance}" id="range-avance" style="flex:1;" oninput="document.getElementById('range-avance-val').textContent = this.value + '%'" />
+            <span class="font-mono" id="range-avance-val" style="font-size:12px;width:36px;">${task.avance}%</span>
+          </div>
+          <select class="input" id="select-estado" style="margin-bottom:8px;">
+            ${Object.entries(ESTADO).map(([k, v]) => `<option value="${k}" ${task.estado === k ? "selected" : ""}>${v}</option>`).join("")}
+          </select>
+          <button data-action="save-avance" class="btn-primary" style="font-size:11.5px;padding:9px 0;">GUARDAR AVANCE</button>
+
+          ${!S.showProrroga ? `
+          <button data-action="show-prorroga" style="color:var(--gold);font-size:12.5px;margin-top:10px;" class="flex items-center gap-2">📅 Solicitar nueva fecha límite</button>` : `
+          <div style="background:var(--paper);border:1px solid var(--line);padding:10px;margin-top:10px;">
+            <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">SOLICITAR PRÓRROGA</div>
+            <input type="date" class="input" id="prorroga-fecha" style="margin-bottom:8px;" />
+            <textarea class="input" id="prorroga-motivo" rows="2" placeholder="Motivo del pedido de nueva fecha…" style="margin-bottom:8px;"></textarea>
+            <div class="flex gap-2">
+              <button data-action="confirm-prorroga" class="font-mono flex-1" style="background:var(--gold);color:#fff;padding:8px 0;font-size:11px;">CONFIRMAR</button>
+              <button data-action="cancel-prorroga" class="font-mono" style="color:var(--ink-soft);font-size:11px;padding:8px 10px;">CANCELAR</button>
+            </div>
+          </div>`}
+        </div>` : ""}
+
+        ${historial}
+
+        <div class="divider" style="padding-top:12px;">
+          <div class="font-mono" style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">COMENTARIOS Y ALERTAS</div>
+          <div class="flex flex-col gap-2" style="margin-bottom:12px;">${comentarios}</div>
+          <div class="flex flex-col gap-2">
+            ${isDirector ? `
+            <div class="flex gap-2">
+              <button data-action="set-tipo-comentario" data-tipo="comentario" class="font-mono" style="font-size:10.5px;padding:6px 10px;background:${S.tipoComentario === "comentario" ? "var(--navy)" : "var(--paper)"};color:${S.tipoComentario === "comentario" ? "#fff" : "var(--ink)"};border:1px solid var(--line);">COMENTARIO</button>
+              <button data-action="set-tipo-comentario" data-tipo="alerta" class="font-mono" style="font-size:10.5px;padding:6px 10px;background:${S.tipoComentario === "alerta" ? "var(--alta)" : "var(--paper)"};color:${S.tipoComentario === "alerta" ? "#fff" : "var(--ink)"};border:1px solid var(--line);">ALERTA</button>
+            </div>` : ""}
+            <textarea class="input" id="comentario-texto" rows="2" placeholder="Escribir un comentario…"></textarea>
+            <button data-action="add-comentario" class="font-mono" style="background:var(--navy);color:var(--paper);padding:9px 0;font-size:11.5px;">💬 PUBLICAR</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- Modal: formulario de tarea ---------- */
+function taskFormModalHTML() {
+  const editTask = S.editTaskId ? S.tasks.find((t) => t.id === S.editTaskId) : null;
+  const areaIdDefault = editTask?.areaId || S.areas[0]?.id || "";
+  const areaOptions = S.areas.map((a) => `<option value="${a.id}" ${areaIdDefault === a.id ? "selected" : ""}>${esc(a.nombre)}</option>`).join("");
+  const areaUsers = S.users.filter((u) => u.rol === "area" && u.areaId === areaIdDefault);
+  const respOptions = areaUsers.map((u) => `<option value="${esc(u.nombre)}" ${editTask?.responsable === u.nombre ? "selected" : ""}>${esc(u.nombre)}</option>`).join("");
+
+  return `
+  <div class="modal-bg" data-action="close-task-form">
+    <div class="modal-panel scrollbar" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between px4" style="padding-top:16px;padding-bottom:12px;border-bottom:1px solid var(--line);">
+        <div class="font-display" style="font-size:17px;font-weight:700;">${editTask ? "Editar tarea" : "Nueva tarea"}</div>
+        <button data-action="close-task-form" style="color:var(--ink-soft);font-size:20px;">×</button>
+      </div>
+      <form id="task-form" class="px4 py4 flex flex-col gap-3">
+        <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">ÁREA</label>
+          <select class="input" id="tf-area" style="margin-top:4px;">${areaOptions}</select></div>
+        <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">TÍTULO</label>
+          <input class="input" id="tf-titulo" style="margin-top:4px;" value="${esc(editTask?.titulo || "")}" /></div>
+        <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">DESCRIPCIÓN</label>
+          <textarea class="input" id="tf-desc" rows="2" style="margin-top:4px;">${esc(editTask?.descripcion || "")}</textarea></div>
+        <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">RESPONSABLE</label>
+          <select class="input" id="tf-resp" style="margin-top:4px;"><option value="">Seleccionar…</option>${respOptions}</select></div>
+        <div class="grid2">
+          <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">CRITICIDAD</label>
+            <select class="input" id="tf-crit" style="margin-top:4px;">${Object.entries(CRIT).map(([k, v]) => `<option value="${k}" ${editTask?.criticidad === k ? "selected" : ""}>${v.label}</option>`).join("")}</select></div>
+          <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">ESTADO</label>
+            <select class="input" id="tf-estado" style="margin-top:4px;">${Object.entries(ESTADO).map(([k, v]) => `<option value="${k}" ${editTask?.estado === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+        </div>
+        <div><label class="font-mono" style="font-size:10px;color:var(--ink-soft);">FECHA LÍMITE</label>
+          <input type="date" class="input" id="tf-fecha" style="margin-top:4px;" value="${editTask?.fechaLimite || addDays(7)}" /></div>
+        <button type="submit" class="btn-primary" style="margin-top:4px;">${editTask ? "GUARDAR CAMBIOS" : "CREAR TAREA"}</button>
+      </form>
+    </div>
+  </div>`;
+}
+
+/* ---------- Render principal de la app ---------- */
+function renderApp() {
+  const content = S.user.rol === "admin" ? adminContentHTML() : S.user.rol === "director" ? directorContentHTML() : areaContentHTML();
+  const openTask = S.openTaskId ? S.tasks.find((t) => t.id === S.openTaskId) : null;
+
+  document.getElementById("app").innerHTML = `
+    <div class="shell">
+      ${headerHTML()}
+      <div style="flex:1;overflow-y:auto;" class="scrollbar">${content}</div>
+      ${bottomNavHTML()}
+    </div>
+    ${openTask ? taskDetailModalHTML(openTask) : ""}
+    ${S.showTaskForm ? taskFormModalHTML() : ""}
+  `;
+  wireFormListeners();
+}
+
+function wireFormListeners() {
+  const areaForm = document.getElementById("form-area");
+  if (areaForm) areaForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const nombre = document.getElementById("new-area-nombre").value.trim();
+    if (!nombre) return;
+    S.areas.push({ id: uid("area"), nombre }); persist(); render();
+  });
+
+  const userForm = document.getElementById("form-user");
+  if (userForm) userForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const nombre = document.getElementById("new-user-nombre").value.trim();
+    const usuario = document.getElementById("new-user-usuario").value.trim();
+    const clave = document.getElementById("new-user-clave").value.trim() || "1234";
+    const rol = document.getElementById("new-user-rol").value;
+    const areaId = document.getElementById("new-user-area").value;
+    if (!nombre || !usuario) return;
+    S.users.push({ id: uid("u"), nombre, usuario, clave, rol, areaId: rol === "area" ? areaId : null });
+    persist(); render();
+  });
+
+  const areaSelect = document.getElementById("tf-area");
+  if (areaSelect) areaSelect.addEventListener("change", () => {
+    const respSel = document.getElementById("tf-resp");
+    const users = S.users.filter((u) => u.rol === "area" && u.areaId === areaSelect.value);
+    respSel.innerHTML = `<option value="">Seleccionar…</option>` + users.map((u) => `<option value="${esc(u.nombre)}">${esc(u.nombre)}</option>`).join("");
+  });
+
+  const taskForm = document.getElementById("task-form");
+  if (taskForm) taskForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const form = {
+      areaId: document.getElementById("tf-area").value,
+      titulo: document.getElementById("tf-titulo").value.trim(),
+      descripcion: document.getElementById("tf-desc").value.trim(),
+      responsable: document.getElementById("tf-resp").value,
+      criticidad: document.getElementById("tf-crit").value,
+      estado: document.getElementById("tf-estado").value,
+      fechaLimite: document.getElementById("tf-fecha").value,
+    };
+    if (!form.titulo || !form.responsable || !form.areaId) return;
+    if (S.editTaskId) {
+      const idx = S.tasks.findIndex((t) => t.id === S.editTaskId);
+      S.tasks[idx] = { ...S.tasks[idx], ...form };
+    } else {
+      S.tasks.push({ ...form, id: uid("t"), avance: 0, comentarios: [], historial: [] });
+    }
+    S.showTaskForm = false; S.editTaskId = null;
+    persist(); render();
+  });
+}
+
+/* ---------- Delegación global de clicks ---------- */
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.dataset.action;
+
+  if (action === "quick-login") {
+    document.getElementById("login-usuario").value = el.dataset.usuario;
+    document.getElementById("login-clave").value = "1234";
+    return;
+  }
+  if (action === "logout") { S.user = null; S.tab = "resumen"; S.openTaskId = null; render(); return; }
+  if (action === "set-tab") { S.tab = el.dataset.tab; render(); return; }
+  if (action === "open-task") { S.openTaskId = el.dataset.id; S.showProrroga = false; S.tipoComentario = "comentario"; render(); return; }
+  if (action === "close-modal") { S.openTaskId = null; render(); return; }
+  if (action === "new-task") { S.showTaskForm = true; S.editTaskId = null; render(); return; }
+  if (action === "edit-task") { S.showTaskForm = true; S.editTaskId = el.dataset.id; render(); return; }
+  if (action === "close-task-form") { S.showTaskForm = false; S.editTaskId = null; render(); return; }
+
+  if (action === "set-criticidad") {
+    const t = S.tasks.find((x) => x.id === S.openTaskId);
+    t.criticidad = el.dataset.crit; persist(); render(); return;
+  }
+  if (action === "save-avance") {
+    const t = S.tasks.find((x) => x.id === S.openTaskId);
+    t.avance = Number(document.getElementById("range-avance").value);
+    t.estado = document.getElementById("select-estado").value;
+    persist(); render(); return;
+  }
+  if (action === "show-prorroga") { S.showProrroga = true; render(); return; }
+  if (action === "cancel-prorroga") { S.showProrroga = false; render(); return; }
+  if (action === "confirm-prorroga") {
+    const fecha = document.getElementById("prorroga-fecha").value;
+    const motivo = document.getElementById("prorroga-motivo").value.trim();
+    if (!fecha || !motivo) return;
+    const t = S.tasks.find((x) => x.id === S.openTaskId);
+    t.historial.push({ fechaAnterior: t.fechaLimite, fechaNueva: fecha, motivo });
+    t.fechaLimite = fecha;
+    S.showProrroga = false; persist(); render(); return;
+  }
+  if (action === "set-tipo-comentario") { S.tipoComentario = el.dataset.tipo; render(); return; }
+  if (action === "add-comentario") {
+    const texto = document.getElementById("comentario-texto").value.trim();
+    if (!texto) return;
+    const t = S.tasks.find((x) => x.id === S.openTaskId);
+    t.comentarios.push({ autor: S.user.nombre, rol: S.user.rol, fecha: new Date().toISOString().slice(0, 10), texto, tipo: S.user.rol === "director" ? S.tipoComentario : "comentario" });
+    persist(); render(); return;
+  }
+  if (action === "export-excel") { exportCSV(); return; }
+  if (action === "export-word") { exportWord(); return; }
+});
+
+/* ---------- Arranque ---------- */
+render();
+</script>
+</body>
+</html>
