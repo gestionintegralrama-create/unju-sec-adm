@@ -213,15 +213,18 @@ function TaskForm({ areas, users, defaultAreaId, defaultUserId, lockAssignment, 
 
 /* ---------------- Tarjeta de tarea ---------------- */
 
-function TaskCard({ task, area, user, role, canManage, canObserve, onUpdateProgress, onMarkComplete, onAddObservation, onChangeDate, onChangePriority }) {
+function TaskCard({ task, area, user, role, canManage, canObserve, allAreas, allUsers, onUpdateProgress, onMarkComplete, onAddObservation, onChangeDate, onChangePriority, onReassign, onDeleteTask }) {
   const [open, setOpen] = useState(false);
   const [obsText, setObsText] = useState("");
   const [newDate, setNewDate] = useState(task.plannedEndDate);
   const [dateMotivo, setDateMotivo] = useState("");
   const [newPriority, setNewPriority] = useState(task.priority);
   const [prioMotivo, setPrioMotivo] = useState("");
+  const [reassignAreaId, setReassignAreaId] = useState(task.areaId);
+  const [reassignUserId, setReassignUserId] = useState(task.userId);
   const status = computeStatus(task);
   const isAreaOwner = role === "area";
+  const reassignAreaUsers = (allUsers || []).filter((u) => u.areaId === reassignAreaId);
 
   return (
     <div className="task-card">
@@ -288,13 +291,44 @@ function TaskCard({ task, area, user, role, canManage, canObserve, onUpdateProgr
             </div>
           )}
 
+          {canManage && (
+            <div className="mini-form">
+              <label>Reasignar tarea a otra área / persona</label>
+              <div className="field-row">
+                <select value={reassignAreaId} onChange={(e) => {
+                  const aid = e.target.value;
+                  setReassignAreaId(aid);
+                  const first = (allUsers || []).find((u) => u.areaId === aid);
+                  setReassignUserId(first ? first.id : "");
+                }}>
+                  {(allAreas || []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <select value={reassignUserId} onChange={(e) => setReassignUserId(e.target.value)}>
+                  {reassignAreaUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+              <button className="btn small" disabled={reassignAreaId === task.areaId && reassignUserId === task.userId}
+                onClick={() => onReassign(task.id, reassignAreaId, reassignUserId)}>
+                Confirmar reasignación
+              </button>
+            </div>
+          )}
+
+          {canManage && onDeleteTask && (
+            <div className="mini-form">
+              <button className="btn small danger" onClick={() => { if (window.confirm(`¿Eliminar la tarea "${task.title}"? Esta acción no se puede deshacer.`)) onDeleteTask(task.id); }}>
+                Eliminar tarea
+              </button>
+            </div>
+          )}
+
           {(task.history?.length > 0) && (
             <div className="history-list">
               <h4>Historial de cambios</h4>
               {task.history.map((h) => (
                 <div key={h.id} className="history-item">
                   <span className="history-date">{fmt(h.date)}</span>
-                  <span>{h.field === "plannedEndDate" ? "Fecha reprogramada" : "Prioridad modificada"}: {h.oldValue} → {h.newValue}</span>
+                  <span>{h.field === "plannedEndDate" ? "Fecha reprogramada" : h.field === "priority" ? "Prioridad modificada" : "Reasignación"}: {h.oldValue} → {h.newValue}</span>
                   <span className="history-motivo">Motivo: {h.motivo}</span>
                 </div>
               ))}
@@ -414,6 +448,46 @@ function AreaView({ db, currentUser, actions }) {
 
 /* ---------------- Vista Administración ---------------- */
 
+/* ---------------- Fila de usuario editable ---------------- */
+
+function UserRow({ user, areas, taskCount, onRename, onChangeArea, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(user.name);
+
+  function saveName() {
+    if (name.trim() && name.trim() !== user.name) onRename(user.id, name.trim());
+    setEditing(false);
+  }
+
+  return (
+    <li className="user-row">
+      {editing ? (
+        <span className="user-row-edit">
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus
+            onKeyDown={(e) => e.key === "Enter" && saveName()} />
+          <button className="btn small primary" onClick={saveName}>Guardar</button>
+          <button className="btn small ghost" onClick={() => { setName(user.name); setEditing(false); }}>Cancelar</button>
+        </span>
+      ) : (
+        <span className="user-row-view">
+          <span>{user.name}</span>
+          <select className="area-inline" value={user.areaId} onChange={(e) => onChangeArea(user.id, e.target.value)}>
+            {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          <span className="user-row-actions">
+            <button className="btn small ghost" onClick={() => setEditing(true)}>Editar</button>
+            <button className="btn small danger" disabled={taskCount > 0}
+              title={taskCount > 0 ? `Tiene ${taskCount} tarea(s) asignada(s). Reasignalas antes de eliminar.` : "Eliminar usuario"}
+              onClick={() => { if (window.confirm(`¿Eliminar a ${user.name}?`)) onDelete(user.id); }}>
+              Eliminar
+            </button>
+          </span>
+        </span>
+      )}
+    </li>
+  );
+}
+
 function AdminView({ db, actions }) {
   const [tab, setTab] = useState("tareas");
   const [showForm, setShowForm] = useState(false);
@@ -459,9 +533,12 @@ function AdminView({ db, actions }) {
             {tasks.map((t) => (
               <TaskCard key={t.id} task={t} area={db.areas.find((a) => a.id === t.areaId)} user={db.users.find((u) => u.id === t.userId)}
                 role="admin" canManage canObserve
+                allAreas={db.areas} allUsers={db.users.filter((u) => u.role === "area")}
                 onAddObservation={actions.addObservation}
                 onChangeDate={actions.changeDate}
-                onChangePriority={actions.changePriority} />
+                onChangePriority={actions.changePriority}
+                onReassign={actions.reassignTask}
+                onDeleteTask={actions.deleteTask} />
             ))}
           </div>
         </>
@@ -489,7 +566,11 @@ function AdminView({ db, actions }) {
             <h3>Usuarios</h3>
             <ul className="simple-list">
               {db.users.filter((u) => u.role === "area").map((u) => (
-                <li key={u.id}>{u.name} <span className="muted">— {db.areas.find(a=>a.id===u.areaId)?.name}</span></li>
+                <UserRow key={u.id} user={u} areas={db.areas}
+                  taskCount={db.tasks.filter((t) => t.userId === u.id).length}
+                  onRename={actions.renameUser}
+                  onChangeArea={actions.changeUserArea}
+                  onDelete={actions.deleteUser} />
               ))}
             </ul>
             <div className="mini-form">
@@ -743,6 +824,44 @@ export default function App() {
           : t),
       }));
     },
+    reassignTask(taskId, newAreaId, newUserId) {
+      setDb((d) => {
+        const task = d.tasks.find((t) => t.id === taskId);
+        const oldAreaName = d.areas.find((a) => a.id === task.areaId)?.name || "—";
+        const oldUserName = d.users.find((u) => u.id === task.userId)?.name || "—";
+        const newAreaName = d.areas.find((a) => a.id === newAreaId)?.name || "—";
+        const newUserName = d.users.find((u) => u.id === newUserId)?.name || "—";
+        return {
+          ...d,
+          tasks: d.tasks.map((t) => t.id === taskId
+            ? {
+                ...t, areaId: newAreaId, userId: newUserId,
+                history: [...t.history, {
+                  id: uid("h"), date: todayStr(), field: "assignment",
+                  oldValue: `${oldUserName} (${oldAreaName})`, newValue: `${newUserName} (${newAreaName})`,
+                  motivo: "Reasignación de tarea",
+                }],
+              }
+            : t),
+        };
+      });
+    },
+    deleteTask(taskId) {
+      setDb((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }));
+    },
+    renameUser(userId, newName) {
+      setDb((d) => ({ ...d, users: d.users.map((u) => (u.id === userId ? { ...u, name: newName } : u)) }));
+    },
+    changeUserArea(userId, newAreaId) {
+      setDb((d) => ({ ...d, users: d.users.map((u) => (u.id === userId ? { ...u, areaId: newAreaId } : u)) }));
+    },
+    deleteUser(userId) {
+      setDb((d) => {
+        const hasTasks = d.tasks.some((t) => t.userId === userId);
+        if (hasTasks) return d; // protección: no se borra si tiene tareas asignadas
+        return { ...d, users: d.users.filter((u) => u.id !== userId) };
+      });
+    },
   }), [currentUser]);
 
   return (
@@ -841,7 +960,14 @@ h1, h2, h3, h4 { font-family: 'Source Serif 4', serif; margin: 0; font-weight: 6
 .btn.primary:hover { background: ${PALETTE.secondary}; }
 .btn.ghost { background: transparent; border-color: var(--line); color: var(--ink); }
 .btn.small { padding: 6px 12px; font-size: 12.5px; }
+.btn.danger { background: transparent; border-color: ${PALETTE.alert}; color: ${PALETTE.alert}; }
+.btn.danger:hover:not(:disabled) { background: ${PALETTE.alert}; color: #fff; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.user-row { display: flex; }
+.user-row-view, .user-row-edit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.user-row-actions { display: flex; gap: 6px; margin-left: auto; }
+.area-inline { font-size: 12px; padding: 4px 6px; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 18px 20px; margin-bottom: 18px; }
 .panel h3 { font-size: 15.5px; margin-bottom: 10px; }
