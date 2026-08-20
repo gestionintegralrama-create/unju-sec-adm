@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
+import * as XLSX from "xlsx";
+import { supabase, supabaseConfigured } from "./supabaseClient";
 
 /* ============================================================
    RECTORADO UNJU — Sistema de gestión de tareas
@@ -108,7 +110,32 @@ const SEED_TASKS = [
   { id: "t10", areaId: "a5", userId: "u6", title: "Renovación de contrato de limpieza", description: "", priority: "baja", startDate: "2026-08-15", plannedEndDate: "2026-09-10", actualEndDate: null, progress: 5, observations: [], history: [] },
 ];
 
-/* ---------------- Componentes chicos ---------------- */
+/* ---------------- Conversión filas Supabase <-> objetos de la app ---------------- */
+
+function rowToArea(r) { return { id: r.id, name: r.name }; }
+function areaToRow(a) { return { id: a.id, name: a.name }; }
+
+function rowToUser(r) { return { id: r.id, name: r.name, username: r.username, role: r.role, areaId: r.area_id }; }
+function userToRow(u) { return { id: u.id, name: u.name, username: u.username, role: u.role, area_id: u.areaId }; }
+
+function rowToTask(r) {
+  return {
+    id: r.id, areaId: r.area_id, userId: r.user_id, title: r.title, description: r.description || "",
+    priority: r.priority, startDate: r.start_date, plannedEndDate: r.planned_end_date,
+    actualEndDate: r.actual_end_date, progress: r.progress ?? 0,
+    observations: r.observations || [], history: r.history || [],
+  };
+}
+function taskToRow(t) {
+  return {
+    id: t.id, area_id: t.areaId, user_id: t.userId, title: t.title, description: t.description || "",
+    priority: t.priority, start_date: t.startDate, planned_end_date: t.plannedEndDate,
+    actual_end_date: t.actualEndDate || null, progress: t.progress ?? 0,
+    observations: t.observations || [], history: t.history || [],
+  };
+}
+
+
 
 function Badge({ color, children }) {
   return (
@@ -222,6 +249,7 @@ function TaskCard({ task, area, user, role, canManage, canObserve, allAreas, all
   const [prioMotivo, setPrioMotivo] = useState("");
   const [reassignAreaId, setReassignAreaId] = useState(task.areaId);
   const [reassignUserId, setReassignUserId] = useState(task.userId);
+  const [completionDate, setCompletionDate] = useState(task.actualEndDate || todayStr());
   const status = computeStatus(task);
   const isAreaOwner = role === "area";
   const reassignAreaUsers = (allUsers || []).filter((u) => u.areaId === reassignAreaId);
@@ -258,8 +286,13 @@ function TaskCard({ task, area, user, role, canManage, canObserve, allAreas, all
                 <input type="range" min={0} max={100} value={task.progress}
                   onChange={(e) => onUpdateProgress(task.id, Number(e.target.value))} />
               </label>
-              <button className="btn small primary" onClick={() => onMarkComplete(task.id)}>
-                Marcar como finalizada hoy
+              <label>
+                Fecha real de finalización
+                <input type="date" value={completionDate} max={todayStr()} min={task.startDate}
+                  onChange={(e) => setCompletionDate(e.target.value)} />
+              </label>
+              <button className="btn small primary" onClick={() => onMarkComplete(task.id, completionDate)}>
+                Marcar como finalizada
               </button>
             </div>
           )}
@@ -641,11 +674,38 @@ function TimelineBands({ db }) {
   );
 }
 
+function exportTasksToExcel(db) {
+  const rows = db.tasks.map((t) => {
+    const status = computeStatus(t);
+    return {
+      "Área": db.areas.find((a) => a.id === t.areaId)?.name || "",
+      "Responsable": db.users.find((u) => u.id === t.userId)?.name || "",
+      "Tarea": t.title,
+      "Prioridad": PRIORITY[t.priority].label,
+      "Estado": STATUS[status].label,
+      "Fecha de inicio": fmt(t.startDate),
+      "Fecha fin prevista": fmt(t.plannedEndDate),
+      "Fecha fin real": fmt(t.actualEndDate),
+      "Avance (%)": t.progress,
+      "Observaciones": (t.observations || []).map((o) => `[${fmt(o.date)}] ${o.author}: ${o.text}`).join(" · "),
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 26 }, { wch: 20 }, { wch: 36 }, { wch: 10 }, { wch: 22 },
+    { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 50 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Tareas");
+  XLSX.writeFile(wb, `resumen-tareas-rectorado-unju-${todayStr()}.xlsx`);
+}
+
 function DireccionView({ db, actions }) {
   const [tab, setTab] = useState("panorama");
   const [filterArea, setFilterArea] = useState("todas");
+  const [drill, setDrill] = useState(null); // { type: 'total'|'status'|'priority'|'area', value, label, color }
 
-  const withStatus = db.tasks.map((t) => ({ ...t, status: computeStatus(t) }));
+  const withStatus = useMemo(() => db.tasks.map((t) => ({ ...t, status: computeStatus(t) })), [db.tasks]);
 
   const kpis = useMemo(() => {
     const count = (s) => withStatus.filter((t) => t.status === s).length;
@@ -657,7 +717,7 @@ function DireccionView({ db, actions }) {
       finalizadasConDemora: count("finalizada_con_demora"),
       pendientes: count("pendiente"),
     };
-  }, [db.tasks]);
+  }, [db.tasks, withStatus]);
 
   const barData = db.areas.map((area) => {
     const areaTasks = withStatus.filter((t) => t.areaId === area.id);
@@ -672,6 +732,26 @@ function DireccionView({ db, actions }) {
     color: PRIORITY[p].color,
   }));
 
+  const areaIndicators = db.areas.map((area) => {
+    const areaTasks = withStatus.filter((t) => t.areaId === area.id);
+    return {
+      area,
+      total: areaTasks.length,
+      demoradas: areaTasks.filter((t) => t.status === "demorada").length,
+      enCurso: areaTasks.filter((t) => t.status === "en_curso").length,
+      finalizadas: areaTasks.filter((t) => t.status === "finalizada_a_tiempo" || t.status === "finalizada_con_demora").length,
+    };
+  });
+
+  const drillTasks = useMemo(() => {
+    if (!drill) return [];
+    if (drill.type === "total") return withStatus;
+    if (drill.type === "status") return withStatus.filter((t) => t.status === drill.value);
+    if (drill.type === "priority") return withStatus.filter((t) => t.priority === drill.value);
+    if (drill.type === "area") return withStatus.filter((t) => t.areaId === drill.value);
+    return [];
+  }, [drill, withStatus]);
+
   const tasks = db.tasks.filter((t) => filterArea === "todas" || t.areaId === filterArea);
 
   return (
@@ -681,21 +761,56 @@ function DireccionView({ db, actions }) {
           <p className="eyebrow">Dirección</p>
           <h2>Panorama de gestión</h2>
         </div>
+        <button className="btn ghost" onClick={() => exportTasksToExcel(db)}>⬇ Exportar a Excel</button>
       </div>
 
       <div className="scope-tabs">
-        <button className={tab === "panorama" ? "active" : ""} onClick={() => setTab("panorama")}>Resumen y gráficos</button>
+        <button className={tab === "panorama" ? "active" : ""} onClick={() => { setTab("panorama"); setDrill(null); }}>Resumen y gráficos</button>
         <button className={tab === "tareas" ? "active" : ""} onClick={() => setTab("tareas")}>Todas las tareas</button>
       </div>
 
-      {tab === "panorama" && (
+      {tab === "panorama" && drill && (
+        <div className="drill-view">
+          <div className="drill-head">
+            <div>
+              <p className="eyebrow">Detalle</p>
+              <h2>{drill.label} <span className="muted">({drillTasks.length} tarea{drillTasks.length === 1 ? "" : "s"})</span></h2>
+            </div>
+            <button className="btn ghost" onClick={() => setDrill(null)}>← Volver al tablero general</button>
+          </div>
+          <div className="task-list">
+            {drillTasks.length === 0 && <p className="empty-hint">No hay tareas para esta selección.</p>}
+            {drillTasks.map((t) => (
+              <TaskCard key={t.id} task={t} area={db.areas.find((a) => a.id === t.areaId)} user={db.users.find((u) => u.id === t.userId)}
+                role="direccion" canManage={false} canObserve
+                onAddObservation={actions.addObservation} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "panorama" && !drill && (
         <>
           <div className="kpi-row">
-            <div className="kpi"><span className="kpi-num">{kpis.total}</span><span>Tareas totales</span></div>
-            <div className="kpi" style={{ "--c": PALETTE.secondary }}><span className="kpi-num">{kpis.enCurso}</span><span>En curso</span></div>
-            <div className="kpi" style={{ "--c": PALETTE.alert }}><span className="kpi-num">{kpis.demoradas}</span><span>Demoradas</span></div>
-            <div className="kpi" style={{ "--c": PALETTE.positive }}><span className="kpi-num">{kpis.finalizadasATiempo}</span><span>Finalizadas a tiempo</span></div>
-            <div className="kpi" style={{ "--c": PALETTE.accent }}><span className="kpi-num">{kpis.finalizadasConDemora}</span><span>Finalizadas con demora</span></div>
+            <button className="kpi kpi-click" onClick={() => setDrill({ type: "total", label: "Todas las tareas" })}>
+              <span className="kpi-num">{kpis.total}</span><span>Tareas totales</span>
+            </button>
+            <button className="kpi kpi-click" style={{ "--c": PALETTE.secondary }}
+              onClick={() => setDrill({ type: "status", value: "en_curso", label: "Tareas en curso" })}>
+              <span className="kpi-num">{kpis.enCurso}</span><span>En curso</span>
+            </button>
+            <button className="kpi kpi-click" style={{ "--c": PALETTE.alert }}
+              onClick={() => setDrill({ type: "status", value: "demorada", label: "Tareas demoradas" })}>
+              <span className="kpi-num">{kpis.demoradas}</span><span>Demoradas</span>
+            </button>
+            <button className="kpi kpi-click" style={{ "--c": PALETTE.positive }}
+              onClick={() => setDrill({ type: "status", value: "finalizada_a_tiempo", label: "Finalizadas a tiempo" })}>
+              <span className="kpi-num">{kpis.finalizadasATiempo}</span><span>Finalizadas a tiempo</span>
+            </button>
+            <button className="kpi kpi-click" style={{ "--c": PALETTE.accent }}
+              onClick={() => setDrill({ type: "status", value: "finalizada_con_demora", label: "Finalizadas con demora" })}>
+              <span className="kpi-num">{kpis.finalizadasConDemora}</span><span>Finalizadas con demora</span>
+            </button>
           </div>
 
           <div className="two-col-layout">
@@ -715,16 +830,38 @@ function DireccionView({ db, actions }) {
               </ResponsiveContainer>
             </div>
             <div className="panel">
-              <h3>Distribución por prioridad</h3>
+              <h3>Distribución por prioridad (unificada)</h3>
               <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
+                  <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}
+                    onClick={(entry) => {
+                      const p = ["alta", "media", "baja"].find((k) => PRIORITY[k].label === entry.name);
+                      setDrill({ type: "priority", value: p, label: `Prioridad ${PRIORITY[p].label.toLowerCase()}` });
+                    }} style={{ cursor: "pointer" }}>
                     {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="panel">
+            <h3>Indicadores por área</h3>
+            <p className="muted small">Tocá una tarjeta para ver el detalle de las tareas de esa área.</p>
+            <div className="area-indicator-grid">
+              {areaIndicators.map(({ area, total, demoradas, enCurso, finalizadas }) => (
+                <button key={area.id} className="area-indicator" onClick={() => setDrill({ type: "area", value: area.id, label: area.name })}>
+                  <span className="area-indicator-name">{area.name}</span>
+                  <span className="area-indicator-nums">
+                    <span><b>{total}</b> total</span>
+                    <span style={{ color: PALETTE.secondary }}><b>{enCurso}</b> en curso</span>
+                    <span style={{ color: PALETTE.alert }}><b>{demoradas}</b> demoradas</span>
+                    <span style={{ color: PALETTE.positive }}><b>{finalizadas}</b> finalizadas</span>
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -756,84 +893,150 @@ function DireccionView({ db, actions }) {
 /* ---------------- App raíz ---------------- */
 
 export default function App() {
-  const [db, setDb] = useState(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : { areas: SEED_AREAS, users: SEED_USERS, tasks: SEED_TASKS };
-    } catch {
-      return { areas: SEED_AREAS, users: SEED_USERS, tasks: SEED_TASKS };
-    }
-  });
+  const [db, setDb] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [saveState, setSaveState] = useState("saved");
-  const loadedRef = useRef(true);
+  const [saveState, setSaveState] = useState("saving");
 
-  useEffect(() => {
+  const fetchAll = useCallback(async () => {
     setSaveState("saving");
-    const t = setTimeout(() => {
+    try {
+      const [areasRes, usersRes, tasksRes] = await Promise.all([
+        supabase.from("areas").select("*").order("name"),
+        supabase.from("users").select("*"),
+        supabase.from("tasks").select("*"),
+      ]);
+      if (areasRes.error) throw areasRes.error;
+      if (usersRes.error) throw usersRes.error;
+      if (tasksRes.error) throw tasksRes.error;
+      setDb({
+        areas: areasRes.data.map(rowToArea),
+        users: usersRes.data.map(rowToUser),
+        tasks: tasksRes.data.map(rowToTask),
+      });
+      setSaveState("saved");
+    } catch (err) {
+      console.error("Error cargando datos de Supabase:", err);
+      setSaveState("error");
+    }
+  }, []);
+
+  // Carga inicial: desde Supabase si está configurado, o desde este navegador si no.
+  useEffect(() => {
+    if (!supabaseConfigured) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-        setSaveState("saved");
+        const raw = localStorage.getItem(STORAGE_KEY);
+        setDb(raw ? JSON.parse(raw) : { areas: SEED_AREAS, users: SEED_USERS, tasks: SEED_TASKS });
       } catch {
-        setSaveState("error");
+        setDb({ areas: SEED_AREAS, users: SEED_USERS, tasks: SEED_TASKS });
       }
-    }, 200);
-    return () => clearTimeout(t);
+      setSaveState("saved");
+      return;
+    }
+    fetchAll();
+  }, [fetchAll]);
+
+  // Respaldo local (solo aplica cuando no hay Supabase configurado)
+  useEffect(() => {
+    if (!db || supabaseConfigured) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch { /* noop */ }
   }, [db]);
 
-  const actions = useMemo(() => ({
-    addArea(name) {
-      setDb((d) => ({ ...d, areas: [...d.areas, { id: uid("a"), name }] }));
-    },
-    addUser({ name, username, areaId }) {
-      setDb((d) => ({ ...d, users: [...d.users, { id: uid("u"), name, username, role: "area", areaId }] }));
-    },
-    addTask(data) {
-      setDb((d) => ({
-        ...d,
-        tasks: [...d.tasks, { id: uid("t"), ...data, actualEndDate: null, progress: 0, observations: [], history: [] }],
-      }));
-    },
-    updateProgress(taskId, progress) {
-      setDb((d) => ({ ...d, tasks: d.tasks.map((t) => (t.id === taskId ? { ...t, progress } : t)) }));
-    },
-    markComplete(taskId) {
-      setDb((d) => ({ ...d, tasks: d.tasks.map((t) => (t.id === taskId ? { ...t, actualEndDate: todayStr(), progress: 100 } : t)) }));
-    },
-    addObservation(taskId, text) {
-      setDb((d) => ({
-        ...d,
-        tasks: d.tasks.map((t) => t.id === taskId
-          ? { ...t, observations: [...t.observations, { id: uid("o"), author: currentUser.name, date: todayStr(), text }] }
-          : t),
-      }));
-    },
-    changeDate(taskId, newDate, motivo) {
-      setDb((d) => ({
-        ...d,
-        tasks: d.tasks.map((t) => t.id === taskId
-          ? { ...t, plannedEndDate: newDate, history: [...t.history, { id: uid("h"), date: todayStr(), field: "plannedEndDate", oldValue: fmt(t.plannedEndDate), newValue: fmt(newDate), motivo }] }
-          : t),
-      }));
-    },
-    changePriority(taskId, newPriority, motivo) {
-      setDb((d) => ({
-        ...d,
-        tasks: d.tasks.map((t) => t.id === taskId
-          ? { ...t, priority: newPriority, history: [...t.history, { id: uid("h"), date: todayStr(), field: "priority", oldValue: PRIORITY[t.priority].label, newValue: PRIORITY[newPriority].label, motivo }] }
-          : t),
-      }));
-    },
-    reassignTask(taskId, newAreaId, newUserId) {
-      setDb((d) => {
-        const task = d.tasks.find((t) => t.id === taskId);
-        const oldAreaName = d.areas.find((a) => a.id === task.areaId)?.name || "—";
-        const oldUserName = d.users.find((u) => u.id === task.userId)?.name || "—";
-        const newAreaName = d.areas.find((a) => a.id === newAreaId)?.name || "—";
-        const newUserName = d.users.find((u) => u.id === newUserId)?.name || "—";
-        return {
-          ...d,
-          tasks: d.tasks.map((t) => t.id === taskId
+  // Sincronización en tiempo real: si otra PC cambia datos, se vuelven a traer acá.
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    let debounceTimer = null;
+    const scheduleRefetch = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchAll, 500);
+    };
+    const channel = supabase
+      .channel("rectorado-unju-cambios")
+      .on("postgres_changes", { event: "*", schema: "public", table: "areas" }, scheduleRefetch)
+      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, scheduleRefetch)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(debounceTimer); supabase.removeChannel(channel); };
+  }, [fetchAll]);
+
+  const actions = useMemo(() => {
+    function persist(promise) {
+      if (!promise) return;
+      setSaveState("saving");
+      promise.then(({ error }) => {
+        if (error) { console.error(error); setSaveState("error"); }
+        else setSaveState("saved");
+      });
+    }
+
+    return {
+      addArea(name) {
+        const area = { id: uid("a"), name };
+        setDb((d) => ({ ...d, areas: [...d.areas, area] }));
+        if (supabaseConfigured) persist(supabase.from("areas").insert(areaToRow(area)));
+      },
+      addUser({ name, username, areaId }) {
+        const user = { id: uid("u"), name, username, role: "area", areaId };
+        setDb((d) => ({ ...d, users: [...d.users, user] }));
+        if (supabaseConfigured) persist(supabase.from("users").insert(userToRow(user)));
+      },
+      addTask(data) {
+        const task = { id: uid("t"), ...data, actualEndDate: null, progress: 0, observations: [], history: [] };
+        setDb((d) => ({ ...d, tasks: [...d.tasks, task] }));
+        if (supabaseConfigured) persist(supabase.from("tasks").insert(taskToRow(task)));
+      },
+      updateProgress(taskId, progress) {
+        setDb((d) => ({ ...d, tasks: d.tasks.map((t) => (t.id === taskId ? { ...t, progress } : t)) }));
+        if (supabaseConfigured) persist(supabase.from("tasks").update({ progress }).eq("id", taskId));
+      },
+      markComplete(taskId, completionDate) {
+        const date = completionDate || todayStr();
+        setDb((d) => ({ ...d, tasks: d.tasks.map((t) => (t.id === taskId ? { ...t, actualEndDate: date, progress: 100 } : t)) }));
+        if (supabaseConfigured) persist(supabase.from("tasks").update({ actual_end_date: date, progress: 100 }).eq("id", taskId));
+      },
+      addObservation(taskId, text) {
+        setDb((d) => {
+          const tasks = d.tasks.map((t) => t.id === taskId
+            ? { ...t, observations: [...t.observations, { id: uid("o"), author: currentUser.name, date: todayStr(), text }] }
+            : t);
+          if (supabaseConfigured) {
+            const updated = tasks.find((t) => t.id === taskId);
+            persist(supabase.from("tasks").update({ observations: updated.observations }).eq("id", taskId));
+          }
+          return { ...d, tasks };
+        });
+      },
+      changeDate(taskId, newDate, motivo) {
+        setDb((d) => {
+          const tasks = d.tasks.map((t) => t.id === taskId
+            ? { ...t, plannedEndDate: newDate, history: [...t.history, { id: uid("h"), date: todayStr(), field: "plannedEndDate", oldValue: fmt(t.plannedEndDate), newValue: fmt(newDate), motivo }] }
+            : t);
+          if (supabaseConfigured) {
+            const updated = tasks.find((t) => t.id === taskId);
+            persist(supabase.from("tasks").update({ planned_end_date: newDate, history: updated.history }).eq("id", taskId));
+          }
+          return { ...d, tasks };
+        });
+      },
+      changePriority(taskId, newPriority, motivo) {
+        setDb((d) => {
+          const tasks = d.tasks.map((t) => t.id === taskId
+            ? { ...t, priority: newPriority, history: [...t.history, { id: uid("h"), date: todayStr(), field: "priority", oldValue: PRIORITY[t.priority].label, newValue: PRIORITY[newPriority].label, motivo }] }
+            : t);
+          if (supabaseConfigured) {
+            const updated = tasks.find((t) => t.id === taskId);
+            persist(supabase.from("tasks").update({ priority: newPriority, history: updated.history }).eq("id", taskId));
+          }
+          return { ...d, tasks };
+        });
+      },
+      reassignTask(taskId, newAreaId, newUserId) {
+        setDb((d) => {
+          const task = d.tasks.find((t) => t.id === taskId);
+          const oldAreaName = d.areas.find((a) => a.id === task.areaId)?.name || "—";
+          const oldUserName = d.users.find((u) => u.id === task.userId)?.name || "—";
+          const newAreaName = d.areas.find((a) => a.id === newAreaId)?.name || "—";
+          const newUserName = d.users.find((u) => u.id === newUserId)?.name || "—";
+          const tasks = d.tasks.map((t) => t.id === taskId
             ? {
                 ...t, areaId: newAreaId, userId: newUserId,
                 history: [...t.history, {
@@ -842,32 +1045,43 @@ export default function App() {
                   motivo: "Reasignación de tarea",
                 }],
               }
-            : t),
-        };
-      });
-    },
-    deleteTask(taskId) {
-      setDb((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }));
-    },
-    renameUser(userId, newName) {
-      setDb((d) => ({ ...d, users: d.users.map((u) => (u.id === userId ? { ...u, name: newName } : u)) }));
-    },
-    changeUserArea(userId, newAreaId) {
-      setDb((d) => ({ ...d, users: d.users.map((u) => (u.id === userId ? { ...u, areaId: newAreaId } : u)) }));
-    },
-    deleteUser(userId) {
-      setDb((d) => {
-        const hasTasks = d.tasks.some((t) => t.userId === userId);
-        if (hasTasks) return d; // protección: no se borra si tiene tareas asignadas
-        return { ...d, users: d.users.filter((u) => u.id !== userId) };
-      });
-    },
-  }), [currentUser]);
+            : t);
+          if (supabaseConfigured) {
+            const updated = tasks.find((t) => t.id === taskId);
+            persist(supabase.from("tasks").update({ area_id: newAreaId, user_id: newUserId, history: updated.history }).eq("id", taskId));
+          }
+          return { ...d, tasks };
+        });
+      },
+      deleteTask(taskId) {
+        setDb((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }));
+        if (supabaseConfigured) persist(supabase.from("tasks").delete().eq("id", taskId));
+      },
+      renameUser(userId, newName) {
+        setDb((d) => ({ ...d, users: d.users.map((u) => (u.id === userId ? { ...u, name: newName } : u)) }));
+        if (supabaseConfigured) persist(supabase.from("users").update({ name: newName }).eq("id", userId));
+      },
+      changeUserArea(userId, newAreaId) {
+        setDb((d) => ({ ...d, users: d.users.map((u) => (u.id === userId ? { ...u, areaId: newAreaId } : u)) }));
+        if (supabaseConfigured) persist(supabase.from("users").update({ area_id: newAreaId }).eq("id", userId));
+      },
+      deleteUser(userId) {
+        setDb((d) => {
+          const hasTasks = d.tasks.some((t) => t.userId === userId);
+          if (hasTasks) return d; // protección: no se borra si tiene tareas asignadas
+          if (supabaseConfigured) persist(supabase.from("users").delete().eq("id", userId));
+          return { ...d, users: d.users.filter((u) => u.id !== userId) };
+        });
+      },
+    };
+  }, [currentUser]);
 
   return (
     <div className="app-root">
       <style>{CSS}</style>
-      {!currentUser ? (
+      {!db ? (
+        <div className="loading">Cargando sistema...</div>
+      ) : !currentUser ? (
         <LoginScreen users={db.users} areas={db.areas} onLogin={setCurrentUser} />
       ) : (
         <>
@@ -877,7 +1091,7 @@ export default function App() {
               <span className="app-subtitle">Sistema de gestión de tareas</span>
             </div>
             <div className="app-header-user">
-              <span className="save-dot" data-state={saveState} title={saveState === "saving" ? "Guardando..." : saveState === "error" ? "No se pudo guardar" : "Guardado"} />
+              <span className="save-dot" data-state={saveState} title={saveState === "saving" ? "Sincronizando..." : saveState === "error" ? "No se pudo sincronizar con la base de datos" : "Sincronizado"} />
               <span>{currentUser.name} · <b>{ROLE_LABEL[currentUser.role]}</b></span>
               <button className="btn ghost small" onClick={() => setCurrentUser(null)}>Cambiar de usuario</button>
             </div>
@@ -888,7 +1102,11 @@ export default function App() {
             {currentUser.role === "admin" && <AdminView db={db} actions={actions} />}
             {currentUser.role === "direccion" && <DireccionView db={db} actions={actions} />}
           </main>
-          <p className="storage-note">Los datos se guardan en este navegador. Si lo abrís en otro dispositivo o navegador, vas a ver los datos de ejemplo iniciales.</p>
+          <p className="storage-note">
+            {supabaseConfigured
+              ? "Los datos se guardan en la base de datos compartida y se sincronizan automáticamente entre todas las computadoras."
+              : "⚠ No hay base de datos compartida configurada: los datos se guardan solo en este navegador."}
+          </p>
         </>
       )}
     </div>
@@ -1020,6 +1238,18 @@ textarea { resize: vertical; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--c, ${PALETTE.ink}); border-radius: 4px; padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; }
 .kpi-num { font-family: 'Source Serif 4', serif; font-size: 26px; font-weight: 700; }
 .kpi span:last-child { font-size: 11.5px; color: var(--ink-soft); }
+.kpi-click { text-align: left; cursor: pointer; font-family: 'Inter', sans-serif; transition: transform .1s, box-shadow .15s; }
+.kpi-click:hover { box-shadow: 0 4px 14px rgba(27,42,74,0.12); transform: translateY(-1px); }
+
+.area-indicator-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+.area-indicator { text-align: left; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; font-family: 'Inter', sans-serif; transition: border-color .15s, background .15s; }
+.area-indicator:hover { border-color: ${PALETTE.secondary}; background: var(--surface); }
+.area-indicator-name { font-weight: 700; font-size: 13.5px; }
+.area-indicator-nums { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ink-soft); }
+.area-indicator-nums b { font-family: 'IBM Plex Mono', monospace; color: var(--ink); }
+
+.drill-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.drill-head h2 { font-size: 20px; }
 
 .timeline { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; position: relative; }
 .timeline-today { position: absolute; top: 0; bottom: 20px; width: 2px; background: ${PALETTE.ink}; opacity: 0.5; }
